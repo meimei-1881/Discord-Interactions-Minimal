@@ -1,11 +1,19 @@
 require('dotenv').config()
 
 const express = require('express')
-const { verifyKey } = require('discord-interactions')
+const nacl = require('tweetnacl')
 
 const app = express()
 const PORT = Number(process.env.PORT || 8080)
 const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY || ''
+
+function verifySignature(signature, timestamp, rawBody, publicKey) {
+  return nacl.sign.detached.verify(
+    Buffer.from(timestamp + rawBody),
+    Buffer.from(signature, 'hex'),
+    Buffer.from(publicKey, 'hex')
+  )
+}
 
 app.disable('x-powered-by')
 
@@ -44,7 +52,7 @@ app.post('/api/discord/interactions', express.raw({ type: '*/*' }), (req, res) =
     contentType: req.get('content-type') || null,
   })
 
-  const isValid = verifyKey(rawBody, signature, timestamp, DISCORD_PUBLIC_KEY)
+  const isValid = verifySignature(signature, timestamp, rawBody, DISCORD_PUBLIC_KEY)
 
   if (!isValid) {
     console.error('[interactions] invalid signature', {
@@ -57,10 +65,10 @@ app.post('/api/discord/interactions', express.raw({ type: '*/*' }), (req, res) =
   console.log('[interactions] signature verified')
 
   if (interaction.type === 1) {
-    const payload = JSON.stringify({ type: 1 })
-    res.status(200)
+    const payload = '{"type":1}'
+    res.statusCode = 200
     res.setHeader('Content-Type', 'application/json')
-    return res.send(payload)
+    return res.end(payload)
   }
 
   return res.status(200).json({ type: 5 })
