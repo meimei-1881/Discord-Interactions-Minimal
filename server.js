@@ -7,6 +7,8 @@ const app = express()
 const PORT = Number(process.env.PORT || 8080)
 const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY || ''
 const FORWARD_INTERACTIONS_URL = process.env.FORWARD_INTERACTIONS_URL || ''
+const PUBLIC_KEY_RESOLVER_URL = process.env.PUBLIC_KEY_RESOLVER_URL || ''
+const PUBLIC_KEY_RESOLVER_SECRET = process.env.PUBLIC_KEY_RESOLVER_SECRET || ''
 
 function verifySignature(signature, timestamp, rawBody, publicKey) {
   return nacl.sign.detached.verify(
@@ -14,6 +16,34 @@ function verifySignature(signature, timestamp, rawBody, publicKey) {
     Buffer.from(signature, 'hex'),
     Buffer.from(publicKey, 'hex')
   )
+}
+
+async function resolvePublicKey(applicationId) {
+  if (!applicationId) return null
+
+  if (PUBLIC_KEY_RESOLVER_URL && PUBLIC_KEY_RESOLVER_SECRET) {
+    try {
+      const response = await fetch(PUBLIC_KEY_RESOLVER_URL, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${PUBLIC_KEY_RESOLVER_SECRET}`,
+        },
+        body: JSON.stringify({ applicationId }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data?.publicKey) {
+          return data.publicKey
+        }
+      }
+    } catch (error) {
+      console.error('[interactions] resolver request failed', error)
+    }
+  }
+
+  return DISCORD_PUBLIC_KEY || null
 }
 
 app.disable('x-powered-by')
@@ -53,12 +83,17 @@ app.post('/api/discord/interactions', express.raw({ type: '*/*' }), async (req, 
     contentType: req.get('content-type') || null,
   })
 
-  const isValid = verifySignature(signature, timestamp, rawBody, DISCORD_PUBLIC_KEY)
+  const resolvedPublicKey = await resolvePublicKey(String(interaction?.application_id || ''))
+  if (!resolvedPublicKey) {
+    return res.status(500).json({ error: 'No public key resolved for application' })
+  }
+
+  const isValid = verifySignature(signature, timestamp, rawBody, resolvedPublicKey)
 
   if (!isValid) {
     console.error('[interactions] invalid signature', {
       applicationId: interaction?.application_id,
-      publicKeyPrefix: DISCORD_PUBLIC_KEY.slice(0, 12),
+      publicKeyPrefix: resolvedPublicKey.slice(0, 12),
     })
     return res.status(401).json({ error: 'Invalid request signature' })
   }

@@ -19,6 +19,8 @@ Minimal webhook service for Discord Interactions endpoint verification.
 - Deploy this folder as a separate service.
 - Add env var: `DISCORD_PUBLIC_KEY`
 - Add env var: `FORWARD_INTERACTIONS_URL` (example: `https://discord-dashboard.up.railway.app/api/interactions`)
+- Add env var: `PUBLIC_KEY_RESOLVER_URL` (example: `https://discord-dashboard.up.railway.app/api/internal/interactions/public-key`)
+- Add env var: `PUBLIC_KEY_RESOLVER_SECRET` (must match `INTERACTIONS_RESOLVER_SECRET` in dashboard-frontend)
 - Use this URL in Discord Developer Portal:
   - `https://<your-railway-domain>/api/discord/interactions`
 
@@ -28,3 +30,7 @@ Minimal webhook service for Discord Interactions endpoint verification.
 ## Non-PING behavior
 - If `FORWARD_INTERACTIONS_URL` is set, non-PING payloads are forwarded to your main app.
 - If not set, the service returns `{ "type": 5 }`.
+
+## Dynamic public key lookup
+- The service resolves public key by `application_id` via `PUBLIC_KEY_RESOLVER_URL`.
+- This allows customer custom bots to verify without changing Railway variables per customer.
