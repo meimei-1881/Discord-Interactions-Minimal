@@ -10,6 +10,14 @@ const FORWARD_INTERACTIONS_URL = process.env.FORWARD_INTERACTIONS_URL || ''
 const PUBLIC_KEY_RESOLVER_URL = process.env.PUBLIC_KEY_RESOLVER_URL || ''
 const PUBLIC_KEY_RESOLVER_SECRET = process.env.PUBLIC_KEY_RESOLVER_SECRET || ''
 
+process.on('unhandledRejection', (error) => {
+  console.error('[process] unhandledRejection', error)
+})
+
+process.on('uncaughtException', (error) => {
+  console.error('[process] uncaughtException', error)
+})
+
 function verifySignature(signature, timestamp, rawBody, publicKey) {
   return nacl.sign.detached.verify(
     Buffer.from(timestamp + rawBody),
@@ -47,6 +55,17 @@ async function resolvePublicKey(applicationId) {
 }
 
 app.disable('x-powered-by')
+
+app.use((req, _res, next) => {
+  console.log('[http] incoming', {
+    method: req.method,
+    path: req.path,
+    userAgent: req.get('user-agent') || null,
+    hasSignature: Boolean(req.get('x-signature-ed25519')),
+    timestampHeader: req.get('x-signature-timestamp') || null,
+  })
+  next()
+})
 
 app.get('/health', (_req, res) => {
   res.status(200).json({ ok: true })
@@ -152,5 +171,12 @@ app.post('/api/discord/interactions', express.raw({ type: '*/*' }), async (req, 
 })
 
 app.listen(PORT, '0.0.0.0', () => {
+  console.log('[startup] config', {
+    port: PORT,
+    hasDiscordPublicKey: Boolean(DISCORD_PUBLIC_KEY),
+    hasForwardUrl: Boolean(FORWARD_INTERACTIONS_URL),
+    hasResolverUrl: Boolean(PUBLIC_KEY_RESOLVER_URL),
+    hasResolverSecret: Boolean(PUBLIC_KEY_RESOLVER_SECRET),
+  })
   console.log(`Discord minimal webhook listening on 0.0.0.0:${PORT}`)
 })
