@@ -53,6 +53,7 @@ app.get('/health', (_req, res) => {
 })
 
 app.post('/api/discord/interactions', express.raw({ type: '*/*' }), async (req, res) => {
+  const debugId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
   const signature = req.get('x-signature-ed25519')
   const timestamp = req.get('x-signature-timestamp')
 
@@ -72,12 +73,16 @@ app.post('/api/discord/interactions', express.raw({ type: '*/*' }), async (req, 
   try {
     interaction = JSON.parse(rawBody)
   } catch {
-    console.error('[interactions] invalid JSON body')
+    console.error('[interactions] invalid JSON body', { debugId })
     return res.status(400).json({ error: 'Invalid JSON body' })
   }
 
   console.log('[interactions] received', {
+    debugId,
+    interactionId: interaction?.id,
     type: interaction?.type,
+    customId: interaction?.data?.custom_id,
+    guildId: interaction?.guild_id,
     applicationId: interaction?.application_id,
     hasSignature: Boolean(signature),
     contentType: req.get('content-type') || null,
@@ -92,6 +97,7 @@ app.post('/api/discord/interactions', express.raw({ type: '*/*' }), async (req, 
 
   if (!isValid) {
     console.error('[interactions] invalid signature', {
+      debugId,
       applicationId: interaction?.application_id,
       publicKeyPrefix: resolvedPublicKey.slice(0, 12),
     })
@@ -101,6 +107,7 @@ app.post('/api/discord/interactions', express.raw({ type: '*/*' }), async (req, 
   console.log('[interactions] signature verified')
 
   if (interaction.type === 1) {
+    console.log('[interactions] ping pong', { debugId })
     const payload = '{"type":1}'
     res.statusCode = 200
     res.setHeader('Content-Type', 'application/json')
@@ -112,22 +119,34 @@ app.post('/api/discord/interactions', express.raw({ type: '*/*' }), async (req, 
   }
 
   try {
+    console.log('[interactions] forwarding to upstream', {
+      debugId,
+      url: FORWARD_INTERACTIONS_URL,
+    })
+
     const upstream = await fetch(FORWARD_INTERACTIONS_URL, {
       method: 'POST',
       headers: {
         'content-type': req.get('content-type') || 'application/json',
         'x-signature-ed25519': signature,
         'x-signature-timestamp': timestamp,
+        'x-interaction-debug-id': debugId,
       },
       body: rawBody,
     })
 
     const text = await upstream.text()
+    console.log('[interactions] upstream response', {
+      debugId,
+      status: upstream.status,
+      contentType: upstream.headers.get('content-type') || null,
+      bodyPreview: text.slice(0, 300),
+    })
     res.statusCode = upstream.status
     res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json')
     return res.end(text)
   } catch (error) {
-    console.error('[interactions] forward failed', error)
+    console.error('[interactions] forward failed', { debugId, error })
     return res.status(502).json({ error: 'Failed to forward interaction' })
   }
 })
