@@ -6,6 +6,7 @@ const nacl = require('tweetnacl')
 const app = express()
 const PORT = Number(process.env.PORT || 8080)
 const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY || ''
+const FORWARD_INTERACTIONS_URL = process.env.FORWARD_INTERACTIONS_URL || ''
 
 function verifySignature(signature, timestamp, rawBody, publicKey) {
   return nacl.sign.detached.verify(
@@ -21,7 +22,7 @@ app.get('/health', (_req, res) => {
   res.status(200).json({ ok: true })
 })
 
-app.post('/api/discord/interactions', express.raw({ type: '*/*' }), (req, res) => {
+app.post('/api/discord/interactions', express.raw({ type: '*/*' }), async (req, res) => {
   const signature = req.get('x-signature-ed25519')
   const timestamp = req.get('x-signature-timestamp')
 
@@ -71,7 +72,29 @@ app.post('/api/discord/interactions', express.raw({ type: '*/*' }), (req, res) =
     return res.end(payload)
   }
 
-  return res.status(200).json({ type: 5 })
+  if (!FORWARD_INTERACTIONS_URL) {
+    return res.status(200).json({ type: 5 })
+  }
+
+  try {
+    const upstream = await fetch(FORWARD_INTERACTIONS_URL, {
+      method: 'POST',
+      headers: {
+        'content-type': req.get('content-type') || 'application/json',
+        'x-signature-ed25519': signature,
+        'x-signature-timestamp': timestamp,
+      },
+      body: rawBody,
+    })
+
+    const text = await upstream.text()
+    res.statusCode = upstream.status
+    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json')
+    return res.end(text)
+  } catch (error) {
+    console.error('[interactions] forward failed', error)
+    return res.status(502).json({ error: 'Failed to forward interaction' })
+  }
 })
 
 app.listen(PORT, '0.0.0.0', () => {
